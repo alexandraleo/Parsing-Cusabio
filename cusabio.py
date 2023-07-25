@@ -6,6 +6,8 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import re
 import time
 from datetime import datetime
@@ -33,23 +35,44 @@ URL = "https://www.cusabio.com/"
     # return src
 
 def get_art_page(driver, art):
-
-    time.sleep(2)
+    wait = WebDriverWait(driver, 10)
+    # time.sleep(2)
+    original_window = driver.current_window_handle
+    assert len(driver.window_handles) == 1
     try:
         search_bar = driver.find_elements(By.ID, "nav_search_q")[1]
         search_bar.clear()
-        time.sleep(1)
+        time.sleep(2)
         search_bar.send_keys(art + Keys.ENTER)
-        time.sleep(3)
+        # time.sleep(3)
 
     except:
         print('Can`t find search input')
     try:
+        time.sleep(2)
+        links = driver.find_elements(By.CLASS_NAME, "text-middle")
+        if len(links) > 1:
+            print("Кол-во ссылок ", len(links))
         driver.find_element(By.CLASS_NAME, "text-middle").click()
+
+        # for link in links:
+        #     if .click()
+        # TODO проверка на 2 артикула, чтобы брал нужный, с конъюгатами особенно
+        # print("click")
     except:
         print('can`t find tag a for art ' + art)
-    time.sleep(5)
-    driver.switch_to.window(driver.window_handles[1])
+    wait.until(EC.number_of_windows_to_be(2))
+    # time.sleep(2)
+    assert len(driver.window_handles) == 2
+    for window_handle in driver.window_handles:
+        if window_handle != original_window:
+            driver.switch_to.window(window_handle)
+            # print("switched")
+            break
+    # time.sleep(2)
+    # driver.switch_to.window(driver.window_handles[1])
+    time.sleep(3)
+    # WebDriverWait(driver, timeout=3).until(some_condition)
     return driver.page_source
 
 def get_soup(html):
@@ -59,12 +82,36 @@ def get_soup(html):
     except:
         print('No soup!')
 
+def get_next_siblig_text(soup, txt, var_name):
+    container = soup.find("div", string=txt)
+
+    if container:
+        var_name = container.find_next_sibling("div").get_text().strip()
+    else:
+        print("Can`t find {var_name}")
+        var_name = ""
+    return var_name
+
 def get_art_structure(soup, art):
 
     reactivity_dict = {
         "Human": "человек",
         "Mouse": "мышь",
-        "Rat": "крыса"
+        "Rat": "крыса",
+        "Monkey": "обезьяна",
+        "H": "человек",
+        "M": "мышь",
+        "R": "крыса",
+        "Mk": "обезьяна",
+        "Dg": "собака",
+        "Ch": "курица",
+        "Hm": "хомяк",
+        "Rb": "кролик",
+        "Sh": "овца",
+        "Pg": "свинья",
+        "Z": "Данио",
+        "X": "Ксенопус",
+        "C": "корова"
     }
 
     application_dict = {
@@ -116,12 +163,22 @@ def get_art_structure(soup, art):
     else:
         print("Can`t find volumes and prices")
 
+    title_con = soup.find("div", class_="product-name")
+    if title_con:
+        title = title_con.find("h1").get_text().strip()
+    else:
+        title = ""
+        print("No title")
     antigen_sib = soup.find("div", string="Target Names")
     if antigen_sib:
         antigen = antigen_sib.find_next_sibling("div").get_text().strip()
     else:
-        print("No antigen")
-        antigen = ""
+        if title_con:
+            antigen_txt = title_con.find("h1").get_text().strip()
+            antigen = antigen_txt.split(" ")[0]
+        else:
+            print("No antigen")
+            antigen = ""
 # TODO переписать на функцию с поиском сиблинга
 
     # siblings_dict = {
@@ -133,15 +190,8 @@ def get_art_structure(soup, art):
     #     clonality: "Clonality"
     # }
 
-    # def get_next_siblig_text(soup, txt, var_name):
-    #     container = soup.find("div", string=txt)
-
-    #     if container:
-    #         var_name = container.find_next_sibling("div").get_text().strip()
-    #     else:
-    #         print("Can`t find {var_name}")
-    #         var_name = ""
-    #     return var_name
+    # for item in siblings_dict:
+    #     get_next_siblig_text(soup, siblings_dict.values(), siblings_dict.keys())
 
     reactivity_con = soup.find("div", string="Species Reactivity")
     if reactivity_con:
@@ -150,11 +200,17 @@ def get_art_structure(soup, art):
         print("Can`t find reactivity")
         reactivity = ""
     host_cont = soup.find("div", string="Raised in")
+    isotype_con = soup.find("div", string="Isotype")
     if host_cont:
         host = host_cont.find_next_sibling("div").get_text().strip()
     else:
-        print("No host")
-        host = ""
+        if isotype_con:
+            host_txt = isotype_con.find_next_sibling("div").get_text().strip()
+            # print(host_txt)
+            host = host_txt.split(" ")[0]
+        else:
+            # print("No host")
+            host = ""
     appls_con = soup.find("div", string="Tested Applications")
     if appls_con:
         appls = appls_con.find_next_sibling("div").get_text().strip()
@@ -162,31 +218,33 @@ def get_art_structure(soup, art):
         appls = ""
         print("No appls")
     clonality_con = soup.find("div", string="Clonality")
+    clone_con = soup.find("div", string="Clone No.")
+    clone = ""
     if clonality_con:
-        clonality = clonality_con.find_next_sibling("div").get_text().strip()
+        clonality = clonality_con.find_next_sibling("div").get_text().split(" ")[0].strip()
+        if clonality.lower() == "polyclonal":
+            clone = ""
+        elif clonality.lower() == "monoclonal":
+            if clone_con:
+                clone = clone_con.find_next_sibling("div").get_text().strip()
+            else:
+                clone = ""
     else:
-        clonality = "Polyclonal"
-        clone = ""
-        print("No clon/clonality")
-        # TODO проверить логику с клонами
-    if clonality.lower() == "monoclonal":
-        clone = soup.find("div", string="Clone No.").find_next_sibling("div").get_text().strip()
-    else:
-        clone = ""
+        if not clone_con:
+            clonality = "Polyclonal"
+            clone = ""
+        else:
+            clone = clone_con.find_next_sibling("div").get_text().strip()
+            clonality = "Monoclonal"
 
-    title_con = soup.find("div", class_="product-name")
-    if title_con:
-        title = title_con.find("h1").get_text().strip()
-    else:
-        title = ""
-        print("No title")
     dilutions = []
     ihc_dil = ""
-    dilus_tbl = soup.find("table", class_="table table-bordered").find_all("tr")
+    dilus_tbl = soup.find("table", class_="table table-bordered")
     if dilus_tbl:
+        dilus_trs = dilus_tbl.find_all("tr")
         appl_names = []
         dilus_txts = []
-        for tr in dilus_tbl:
+        for tr in dilus_trs:
             td_list = tr.find_all("td")
             if len(td_list) > 0:
                 appl_name = td_list[0].get_text().strip()
@@ -196,10 +254,10 @@ def get_art_structure(soup, art):
                 dilutions.append(appl_name + " " + dilus_txt)
                 if appl_name == "IHC" or appl_name == "IHC-P":
                     ihc_dil = dilus_txt
-        if len(appls.split(", ")) != len(dilutions):
-            for appl in appls.split(", "):
-                if not appl in appl_names:
-                    dilutions.append(appl)
+        if len(appls.split(",")) != len(dilutions):
+            for appl in appls.split(","):
+                if not appl.strip() in appl_names:
+                    dilutions.append(appl.strip())
         if len(ihc_dil) > 0:
             application_dict["IHC"] = "иммуногистохимии (рекомендуемое разведение " + ihc_dil + ")"
             application_dict["IHC-P"] = "иммуногистохимии на парафиновых срезах (рекомендуемое разведение " + ihc_dil + ")"
@@ -212,12 +270,35 @@ def get_art_structure(soup, art):
         appls_ru = ""
         print("No ru appls")
     reactivity_ru = ", ".join([reactivity_dict.get(w.strip(), w.strip()) for w in reactivity.split(",")])
-    text = "\n".join(dilutions) + "\n" + reactivity
+    if len(dilutions) > 0:
+        text = "\n".join(dilutions) + "\n" + reactivity
+    elif len(appls) > 0:
+        text = appls + "\n" + reactivity
+    else:
+        text = reactivity
     # print(text)
-    conjug = soup.find("div", string="Conjugate").find_next_sibling("div").get_text().strip()
-    storage = soup.find("div", string="Storage").find_next_sibling("div").get_text().strip()
-    storage_buff = soup.find("div", string="Buffer").find_next_sibling("div").get_text().strip()
-    conc = soup.find("div", string="Concentration").find_next_sibling("div").get_text().strip()
+    conjug_con = soup.find("div", string="Conjugate")
+    if conjug_con:
+        conjug = conjug_con.find_next_sibling("div").get_text().strip()
+        if conjug == "Non-conjugated":
+            conjug = ""
+    else:
+        conjug = ""
+    storage_con = soup.find("div", string="Storage")
+    if storage_con:
+        storage = storage_con.find_next_sibling("div").get_text().strip()
+    else:
+        storage = ""
+    storage_buff_con = soup.find("div", string="Buffer")
+    if storage_buff_con:
+        storage_buff = storage_buff_con.find_next_sibling("div").get_text().strip()
+    else:
+        storage_buff = ""
+    conc_con = soup.find("div", string="Concentration")
+    if conc_con:
+        conc = conc_con.find_next_sibling("div").get_text().strip()
+    else:
+        conc = ""
 
     dict_art_list = []
     for i in range(0, len(volumes)):
@@ -232,12 +313,12 @@ def get_art_structure(soup, art):
             "Text": text,
             "Applications_ru": appls_ru,
             "Reactivity_ru": reactivity_ru,
+            "Conjugation": conjug,
             "Title": title,
             "Applications": appls,
             "Dilutions": ", ".join(dilutions),
             "Reactivity": reactivity,
             # "Form": form,
-            "Conjugation": conjug,
             "Storage instructions": storage,
             "Storage buffer": storage_buff,
             "Concentration": conc,
@@ -263,7 +344,8 @@ service = Service("C:\\Users\\Public\\Parsing programs\\chromedriver.exe")
 options = webdriver.ChromeOptions()
 options.add_argument("--disable-extensions")
 # options.add_argument("--disable-gpu")
-# options.add_argument("--headless")
+options.add_argument("--headless")
+options.add_argument("--window-size=1920,1080")
 options.add_argument("--ignore-certificate-errors-spki-list")
 options.add_argument("--ignore-ssl-errors")
 options.add_argument("--disable-infobars")
@@ -275,7 +357,9 @@ driver = webdriver.Chrome(service=service, options=options)
 driver.maximize_window()
 driver.get(URL)
 print("Main site opened")
-time.sleep(3)
+time.sleep(2)
+original_window = driver.current_window_handle
+assert len(driver.window_handles) == 1
 
 
 try:
@@ -291,7 +375,7 @@ try:
         art_info = get_art_structure(soup, art)
         result.extend(art_info)
         driver.close()
-        driver.switch_to.window(driver.window_handles[0])
+        driver.switch_to.window(original_window)
     # print(result)
     write_csv(result)
     finish_time = datetime.now()
