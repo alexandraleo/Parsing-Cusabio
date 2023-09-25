@@ -192,6 +192,8 @@ def get_art_structure(soup, art):
 
     # for item in siblings_dict:
     #     get_next_siblig_text(soup, siblings_dict.values(), siblings_dict.keys())
+# TODO CSB-PA06139A0Rb conjug less info
+
 
     reactivity_con = soup.find("div", string="Species Reactivity")
     if reactivity_con:
